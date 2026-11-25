@@ -61,9 +61,7 @@ def get_site_name(domain):
 
 
 def extract_json_price(soup):
-    for script in soup.find_all(
-        "script", type="application/ld+json"
-    ):
+    for script in soup.find_all("script", type="application/ld+json"):
         try:
             raw = script.string or script.get_text()
             data = json.loads(raw)
@@ -167,7 +165,6 @@ def extract_general_price(soup):
             if price and price > 10:
                 return price
 
-    # Fallback: find visible rupee prices
     text = soup.get_text(" ", strip=True)
 
     matches = re.findall(
@@ -208,7 +205,6 @@ def scrape_price(url):
 
         response = None
 
-        # Try twice for temporary server errors
         for attempt in range(2):
             response = requests.get(
                 url,
@@ -216,6 +212,15 @@ def scrape_price(url):
                 timeout=25,
                 allow_redirects=True,
             )
+
+            # DEBUG LOGS
+            print("========== PRICEPULSE DEBUG ==========")
+            print("Requested URL:", url)
+            print("Final URL:", response.url)
+            print("HTTP Status:", response.status_code)
+            print("Response Server:", response.headers.get("Server"))
+            print("Attempt:", attempt + 1)
+            print("======================================")
 
             if response.status_code not in (500, 502, 503, 504, 529):
                 break
@@ -248,7 +253,6 @@ def scrape_price(url):
 
         soup = BeautifulSoup(response.content, "lxml")
 
-        # Extract product title
         title = None
 
         og_title = soup.find("meta", property="og:title")
@@ -271,7 +275,6 @@ def scrape_price(url):
 
         title = title[:150]
 
-        # Extract product price
         price = extract_json_price(soup)
 
         if not price:
@@ -283,6 +286,9 @@ def scrape_price(url):
         if not price:
             price = extract_general_price(soup)
 
+        print("Extracted Product Title:", title)
+        print("Extracted Product Price:", price)
+
         if not price:
             page_text = soup.get_text(" ", strip=True).lower()
 
@@ -291,9 +297,7 @@ def scrape_price(url):
                 or "robot check" in page_text
                 or "enter the characters you see below" in page_text
             ):
-                message = (
-                    "Website security check blocked automated access."
-                )
+                message = "Website security check blocked automated access."
             else:
                 message = (
                     "Product price was not found. "
@@ -309,16 +313,19 @@ def scrape_price(url):
         }
 
     except requests.exceptions.Timeout:
+        print("PRICEPULSE ERROR: Request timed out")
         return error_result(
             "Website took too long to respond. Please try again."
         )
 
     except requests.exceptions.RequestException as error:
+        print("PRICEPULSE REQUEST ERROR:", str(error))
         return error_result(
             f"Website connection failed: {error}"
         )
 
     except Exception as error:
+        print("PRICEPULSE UNEXPECTED ERROR:", str(error))
         return error_result(
             f"Unexpected error: {error}"
         )

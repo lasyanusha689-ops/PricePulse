@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PricePulse</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Noto+Sans+Kannada:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Plus Jakarta Sans','Noto Sans Kannada',sans-serif}
+body{background:#0f0f1a;color:#fff;min-height:100vh}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:16px 22px;max-width:1000px;margin:0 auto}
+.logo{font-size:22px;font-weight:800}
+.lang-box{background:#1f1f2e;border:1px solid #333;padding:4px;border-radius:30px;display:flex;gap:4px}
+.lang-box button{border:none;padding:7px 14px;border-radius:20px;cursor:pointer;font-weight:700;font-size:13px;background:transparent;color:#aaa}
+.lang-box button.active{background:white;color:black}
+.hero{max-width:1000px;margin:10px auto 0;padding:10px 22px 0}
+.hero h1{font-size:38px;line-height:1.2}
+.hero h1 em{font-style:normal;background:linear-gradient(90deg,#a78bfa,#22d3ee,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero p{color:#9ca3af;margin-top:8px;font-size:14px}
+.search-card{max-width:1000px;margin:20px auto 0;padding:0 22px;display:flex;gap:10px;flex-wrap:wrap}
+.search-card input{flex:1;min-width:250px;padding:16px 18px;border-radius:14px;border:1px solid #333;background:#1a1a28;color:white;outline:none;font-size:15px}
+.search-card button{background:linear-gradient(90deg,#7c3aed,#06b6d4);color:white;border:none;padding:0 26px;border-radius:14px;font-weight:800;cursor:pointer;font-size:15px;white-space:nowrap}
+.manual-box{max-width:1000px;margin:12px auto 0;padding:0 22px;display:flex;gap:10px;flex-wrap:wrap}
+.manual-box input{flex:1;padding:13px 16px;border-radius:12px;border:1px dashed #555;background:#141422;color:white;outline:none;font-size:14px}
+.manual-box button{background:#22c55e;color:black;border:none;padding:0 18px;border-radius:12px;font-weight:800;cursor:pointer;font-size:14px;white-space:nowrap}
+#msg{text-align:center;margin:14px;font-weight:600;color:#a78bfa;min-height:20px}
+.container{max-width:1000px;margin:0 auto;padding:10px 22px 40px}
+.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.stat{background:#1e1e30;border:1px solid #2a2a3d;border-radius:18px;padding:18px}
+.stat small{color:#9ca3af;font-size:12px}
+.stat b{font-size:26px;display:block;margin-top:4px}
+.section-title{margin:22px 0 12px;font-size:19px;font-weight:800}
+.card{background:#1a1a28;border:1px solid #2a2a3d;border-radius:18px;padding:16px;margin-bottom:12px;display:flex;gap:14px;align-items:center}
+.card-info{flex:1;min-width:0}
+.card-info b{font-size:15px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-info small{color:#9ca3af}
+.price{font-size:21px;font-weight:800;margin-top:4px}
+.price small{font-size:11px;color:#4ade80;background:rgba(74,222,128,.15);padding:3px 8px;border-radius:20px;margin-left:6px}
+.btn-row{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.btn{padding:8px 14px;border-radius:20px;border:1px solid #333;background:#262637;color:white;font-size:12px;font-weight:700;cursor:pointer}
+.btn.primary{background:white;color:black}
+.btn.danger{color:#f87171}
+.chart-box{background:#1a1a28;border:1px solid #2a2a3d;border-radius:18px;padding:18px;margin-top:14px}
+.empty{text-align:center;padding:30px;color:#9ca3af;background:#1a1a28;border-radius:18px}
+@media(max-width:600px){.hero h1{font-size:28px}.search-card{flex-direction:column}.manual-box{flex-direction:column}.search-card button{padding:15px}.manual-box button{padding:14px}}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="logo">PricePulse</div><div class="lang-box"><button id="btn-en" class="active" onclick="setLang('en')">English</button><button id="btn-kn" onclick="setLang('kn')">ಕನ್ನಡ</button></div></div>
+<div class="hero"><h1 id="heroTitle">Never Pay More.<br><em>Track. Compare. Save.</em></h1><p id="heroSub">Amazon / Flipkart / Myntra / Nykaa / Ajio / Meesho - Paste any link</p></div>
+<div class="search-card"><input id="url" placeholder="Paste product link..."><button onclick="addProduct()" id="trackBtn">Track Price (Auto)</button></div>
+<div class="manual-box"><input id="mTitle" placeholder="Product name - ex: Boat Headphone"><input id="mPrice" type="number" placeholder="Price - ex: 1299"><button onclick="addManual()" id="manualBtn">+ Add Manually</button></div>
+<p id="msg"></p>
+<div class="container">
+<div class="stats"><div class="stat"><b id="totalCount">0</b><small id="t1">Tracked Items</small></div><div class="stat"><b id="avgPrice">Rs 0</b><small id="t2">Avg Price</small></div><div class="stat"><b id="lowestPrice">Rs 0</b><small id="t3">Lowest Price</small></div></div>
+<div class="section-title"><span id="t4">My Track List</span></div>
+<div id="list"></div>
+<div class="chart-box"><h3 id="t5">Price Comparison</h3><canvas id="myChart"></canvas></div>
+<div class="chart-box" id="histBox" style="display:none"><h3 id="histTitle">Price History</h3><canvas id="histChart"></canvas></div>
+</div>
+<script>
+let myChart = null;
+let histChart = null;
+let lang = 'en';
+let TEXT_EN = {};
+TEXT_EN.heroTitle = 'Never Pay More.<br><em>Track. Compare. Save.</em>';
+TEXT_EN.heroSub = 'Amazon / Flipkart / Myntra / Nykaa / Ajio / Meesho - Paste any link';
+TEXT_EN.placeholder = 'Paste product link...';
+TEXT_EN.trackBtn = 'Track Price (Auto)';
+TEXT_EN.manualBtn = '+ Add Manually';
+TEXT_EN.mTitle = 'Product name - ex: Boat Headphone';
+TEXT_EN.mPrice = 'Price - ex: 1299';
+TEXT_EN.t1 = 'Tracked Items';
+TEXT_EN.t2 = 'Avg Price';
+TEXT_EN.t3 = 'Lowest Price';
+TEXT_EN.t4 = 'My Track List';
+TEXT_EN.t5 = 'Price Comparison';
+TEXT_EN.empty = 'Nothing tracked yet';
+TEXT_EN.scraping = 'Auto tracking... Please wait 15 sec, trying bypass...';
+TEXT_EN.added = 'Auto Added: ';
+TEXT_EN.refreshing = 'Re-checking price...';
+TEXT_EN.updated = 'Updated Price: Rs.';
+TEXT_EN.confirmDel = 'Delete this product?';
+TEXT_EN.historyTitle = 'Price History - ';
+TEXT_EN.refresh = 'Refresh';
+TEXT_EN.history = 'History';
+TEXT_EN.del = 'Delete';
+TEXT_EN.live = 'LIVE';
+TEXT_EN.updatedOn = 'Updated: ';
+TEXT_EN.errorMsg = 'Auto failed, site blocked. Use Manual Add below!';
+TEXT_EN.manualAdded = 'Manually added: ';
+TEXT_EN.meeshoBlocked = 'Site blocked Auto. Name auto-filled! Just enter the price and click Add Manually.';
+let TEXT_KN = {};
+TEXT_KN.heroTitle = 'ಯಾವಾಗಲೂ ಬೆಸ್ಟ್ ಪ್ರೈಸ್ ಗೆ ತಗೊಳ್ಳಿ.';
+TEXT_KN.heroSub = 'ಅಮೆಜಾನ್ / ಫ್ಲಿಪ್‌ಕಾರ್ಟ್ / ಮಿಂತ್ರಾ / ನೈಕಾ / ಅಜಿಯೋ / ಮೀಶೋ - ಯಾವುದೇ ಲಿಂಕ್ ಹಾಕಿ';
+TEXT_KN.placeholder = 'ಲಿಂಕ್ ಇಲ್ಲಿ ಹಾಕಿ...';
+TEXT_KN.trackBtn = 'ಆಟೋ ಟ್ರ್ಯಾಕ್ ಮಾಡಿ';
+TEXT_KN.manualBtn = '+ ಕೈಯಾರೆ ಸೇರಿಸಿ';
+TEXT_KN.mTitle = 'ಪ್ರಾಡಕ್ಟ್ ಹೆಸರು - ಉದಾ: Boat Headphone';
+TEXT_KN.mPrice = 'ಬೆಲೆ - ಉದಾ: 1299';
+TEXT_KN.t1 = 'ಟ್ರ್ಯಾಕ್ ಮಾಡಿದ ವಸ್ತುಗಳು';
+TEXT_KN.t2 = 'ಸರಾಸರಿ ಬೆಲೆ';
+TEXT_KN.t3 = 'ಕಡಿಮೆ ಬೆಲೆ';
+TEXT_KN.t4 = 'ನನ್ನ ಟ್ರ್ಯಾಕ್ ಪಟ್ಟಿ';
+TEXT_KN.t5 = 'ಬೆಲೆ ಹೋಲಿಕೆ';
+TEXT_KN.empty = 'ಇನ್ನೂ ಏನೂ ಟ್ರ್ಯಾಕ್ ಮಾಡಿಲ್ಲ';
+TEXT_KN.scraping = 'ಆಟೋ ಟ್ರ್ಯಾಕ್... 15 ಸೆಕೆಂಡ್ ಕಾಯಿರಿ, ಬೈಪಾಸ್ ಟ್ರೈ ಆಗುತ್ತೆ...';
+TEXT_KN.added = 'ಆಟೋ ಸೇರಿಸಲಾಯಿತು: ';
+TEXT_KN.refreshing = 'ಬೆಲೆ ಮತ್ತೆ ಚೆಕ್ ಮಾಡುತ್ತಿದ್ದೇವೆ...';
+TEXT_KN.updated = 'ಹೊಸ ಬೆಲೆ: ರೂ.';
+TEXT_KN.confirmDel = 'ಈ ಪ್ರಾಡಕ್ಟ್ ಡಿಲೀಟ್ ಮಾಡಬೇಕೆ?';
+TEXT_KN.historyTitle = 'ಬೆಲೆ ಇತಿಹಾಸ - ';
+TEXT_KN.refresh = 'ರಿಫ್ರೆಶ್';
+TEXT_KN.history = 'ಇತಿಹಾಸ';
+TEXT_KN.del = 'ಡಿಲೀಟ್';
+TEXT_KN.live = 'ಲೈವ್';
+TEXT_KN.updatedOn = 'ಅಪ್‌ಡೇಟ್: ';
+TEXT_KN.errorMsg = 'ಆಟೋ ಆಗಲಿಲ್ಲ, ಸೈಟ್ ಬ್ಲಾಕ್ ಮಾಡಿದೆ. ಕೆಳಗೆ ಕೈಯಾರೆ ಸೇರಿಸಿ!';
+TEXT_KN.manualAdded = 'ಕೈಯಾರೆ ಸೇರಿಸಲಾಯಿತು: ';
+TEXT_KN.meeshoBlocked = 'ಸೈಟ್ ಆಟೋ ಬ್ಲಾಕ್ ಮಾಡಿದೆ. ಹೆಸರು ತಾನೇ ಬಂತು! ಬೆಲೆ ಮಾತ್ರ ಹಾಕಿ, ಕೈಯಾರೆ ಸೇರಿಸಿ ಒತ್ತಿ.';
+function getText(){ if(lang==='kn'){ return TEXT_KN; } return TEXT_EN; }
+function setLang(l){
+lang = l;
+document.getElementById('btn-en').className = '';
+document.getElementById('btn-kn').className = '';
+if(l==='en'){ document.getElementById('btn-en').className = 'active'; }
+if(l==='kn'){ document.getElementById('btn-kn').className = 'active'; }
+let t = getText();
+document.getElementById('heroTitle').innerHTML = t.heroTitle;
+document.getElementById('heroSub').innerText = t.heroSub;
+document.getElementById('url').placeholder = t.placeholder;
+document.getElementById('trackBtn').innerText = t.trackBtn;
+document.getElementById('manualBtn').innerText = t.manualBtn;
+document.getElementById('mTitle').placeholder = t.mTitle;
+document.getElementById('mPrice').placeholder = t.mPrice;
+document.getElementById('t1').innerText = t.t1;
+document.getElementById('t2').innerText = t.t2;
+document.getElementById('t3').innerText = t.t3;
+document.getElementById('t4').innerText = t.t4;
+document.getElementById('t5').innerText = t.t5;
+loadList();
+}
+async function addProduct(){
+let url = document.getElementById('url').value.trim();
+if(!url){ alert('Please paste a link'); return; }
+let t = getText();
+document.getElementById('msg').innerText = t.scraping;
+let res = await fetch('/add', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url:url})});
+let data = await res.json();
+if(data.error){
+if(data.title && data.title !== 'Product' && data.title.length > 3){
+document.getElementById('mTitle').value = data.title;
+document.getElementById('msg').innerText = t.meeshoBlocked;
+document.getElementById('mPrice').focus();
+} else {
+document.getElementById('msg').innerText = t.errorMsg;
+}
+}
+else{ document.getElementById('msg').innerText = t.added + data.title + ' - Rs.' + data.price; document.getElementById('url').value = ''; loadList(); }
+}
+async function addManual(){
+let title = document.getElementById('mTitle').value.trim();
+let price = document.getElementById('mPrice').value.trim();
+let url = document.getElementById('url').value.trim();
+let t = getText();
+if(!title || !price){ alert('Please enter Name + Price'); return; }
+let res = await fetch('/add_manual', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title:title, price:price, url:url})});
+let data = await res.json();
+if(data.error){ document.getElementById('msg').innerText = t.errorMsg; }
+else{ document.getElementById('msg').innerText = t.manualAdded + data.title + ' - Rs.' + data.price; document.getElementById('mTitle').value=''; document.getElementById('mPrice').value=''; loadList(); }
+}
+async function loadList(){
+let res = await fetch('/list');
+let rows = await res.json();
+let html = '';
+let prices = [];
+let labels = [];
+let total = rows.length;
+let sum = 0;
+let low = 0;
+if(total > 0){ low = rows[0][3]; }
+for(let i=0;i<rows.length;i++){ sum = sum + rows[i][3]; if(rows[i][3] < low){ low = rows[i][3]; } }
+document.getElementById('totalCount').innerText = total;
+document.getElementById('avgPrice').innerText = 'Rs ' + (total ? Math.round(sum/total) : 0);
+document.getElementById('lowestPrice').innerText = 'Rs ' + low;
+let t = getText();
+if(rows.length === 0){
+document.getElementById('list').innerHTML = '<div class="empty">' + t.empty + '</div>';
+} else {
+for(let i=0;i<rows.length;i++){
+let r = rows[i];
+let lt = r[1].toLowerCase();
+let emoji = 'Box';
+if(lt.includes('watch')){ emoji = 'Watch'; }
+else if(lt.includes('phone')){ emoji = 'Phone'; }
+else if(lt.includes('shoe')){ emoji = 'Shoe'; }
+else if(lt.includes('head')){ emoji = 'Headphone'; }
+else if(lt.includes('saree') || lt.includes('kurti') || lt.includes('dress')){ emoji = 'Dress'; }
+let safeTitle = r[1].replace(/'/g,'').substring(0,25);
+html = html + '<div class="card"><div style="font-size:20px">' + emoji + '</div>';
+html = html + '<div class="card-info"><b>' + r[1] + '</b><small>' + r[4] + ' - ' + t.updatedOn + r[5] + '</small>';
+html = html + '<div class="price">Rs.' + r[3] + ' <small>' + t.live + '</small></div>';
+html = html + '<div class="btn-row">';
+html = html + '<button class="btn primary" onclick="refreshP(' + r[0] + ')">' + t.refresh + '</button>';
+html = html + '<button class="btn" onclick="showHist(' + r[0] + ',\'' + safeTitle + '\')">' + t.history + '</button>';
+html = html + '<button class="btn danger" onclick="delP(' + r[0] + ')">' + t.del + '</button>';
+html = html + '</div></div></div>';
+prices.push(r[3]);
+labels.push(r[1].substring(0,18));
+}
+document.getElementById('list').innerHTML = html;
+}
+if(myChart){ myChart.destroy(); }
+let oneSet = {};
+oneSet.label = 'Price';
+oneSet.data = prices;
+let barData = {};
+barData.labels = labels;
+barData.datasets = [oneSet];
+myChart = new Chart(document.getElementById('myChart'), {type:'bar', data: barData});
+}
+async function delP(id){
+let t = getText();
+if(!confirm(t.confirmDel)){ return; }
+await fetch('/delete/' + id, {method:'DELETE'});
+loadList();
+}
+async function refreshP(id){
+let t = getText();
+document.getElementById('msg').innerText = t.refreshing;
+let res = await fetch('/refresh/' + id, {method:'POST'});
+let d = await res.json();
+if(d.error){ document.getElementById('msg').innerText = t.errorMsg; }
+else{ document.getElementById('msg').innerText = t.updated + d.price; }
+loadList();
+}
+async function showHist(id, title){
+let t = getText();
+let res = await fetch('/history/' + id);
+let rows = await res.json();
+document.getElementById('histBox').style.display = 'block';
+document.getElementById('histTitle').innerText = t.historyTitle + title;
+if(histChart){ histChart.destroy(); }
+let hLabels = [];
+let hPrices = [];
+for(let i=0;i<rows.length;i++){ hLabels.push(rows[i][1]); hPrices.push(rows[i][0]); }
+let twoSet = {};
+twoSet.label = 'Price';
+twoSet.data = hPrices;
+let lineData = {};
+lineData.labels = hLabels;
+lineData.datasets = [twoSet];
+histChart = new Chart(document.getElementById('histChart'), {type:'line', data: lineData});
+document.getElementById('histBox').scrollIntoView({behavior:'smooth'});
+}
+loadList();
+</script>
+</body>
+</html>

@@ -2,8 +2,17 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
+import logging
 from datetime import datetime
 from scraper import scrape_price
+
+# ---------------- LOGGING ----------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+logger = logging.getLogger("PricePulse")
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -20,12 +29,15 @@ language = st.sidebar.selectbox(
     ["English", "ಕನ್ನಡ"]
 )
 
+
 def t(english, kannada):
     return kannada if language == "ಕನ್ನಡ" else english
+
 
 # ---------------- CLEAR URL CALLBACK ----------------
 def clear_url():
     st.session_state["url_input"] = ""
+
 
 # ---------------- DATABASE ----------------
 def get_db():
@@ -54,6 +66,7 @@ def get_db():
     conn.commit()
     return conn
 
+
 # ---------------- GET PRODUCTS ----------------
 def get_products():
     conn = get_db()
@@ -66,45 +79,65 @@ def get_products():
     conn.close()
     return df
 
+
 # ---------------- ADD PRODUCT ----------------
 def add_product(url):
-    result = scrape_price(url)
+    try:
+        logger.info("PRICEPULSE: Starting product scrape")
+        logger.info("PRICEPULSE: Requested URL: %s", url)
 
-    if not result or not result.get("price"):
-        error = result.get("error", "Price could not be found.")
-        return False, error
+        result = scrape_price(url)
 
-    conn = get_db()
-    cursor = conn.cursor()
+        logger.info("PRICEPULSE: Scraper result: %s", result)
 
-    cursor.execute(
-        """INSERT INTO products (title, url, price, site, added)
-           VALUES (?, ?, ?, ?, ?)""",
-        (
-            result["title"],
-            url,
-            result["price"],
-            result["site"],
-            datetime.now().strftime("%Y-%m-%d %H:%M")
+        if not result or not result.get("price"):
+            error = (
+                result.get("error", "Price could not be found.")
+                if result
+                else "Scraper returned no result."
+            )
+
+            logger.warning("PRICEPULSE: Scraping failed: %s", error)
+            return False, error
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """INSERT INTO products (title, url, price, site, added)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                result["title"],
+                url,
+                result["price"],
+                result["site"],
+                datetime.now().strftime("%Y-%m-%d %H:%M")
+            )
         )
-    )
 
-    product_id = cursor.lastrowid
+        product_id = cursor.lastrowid
 
-    cursor.execute(
-        """INSERT INTO history (product_id, price, date)
-           VALUES (?, ?, ?)""",
-        (
-            product_id,
-            result["price"],
-            datetime.now().strftime("%Y-%m-%d %H:%M")
+        cursor.execute(
+            """INSERT INTO history (product_id, price, date)
+               VALUES (?, ?, ?)""",
+            (
+                product_id,
+                result["price"],
+                datetime.now().strftime("%Y-%m-%d %H:%M")
+            )
         )
-    )
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
 
-    return True, result
+        logger.info("PRICEPULSE: Product saved successfully")
+
+        return True, result
+
+    except Exception:
+        logger.exception("PRICEPULSE: ADD PRODUCT ERROR")
+        return False, "An unexpected error occurred while adding the product. Check app logs."
+
 
 # ---------------- DELETE PRODUCT ----------------
 def delete_product(product_id):
@@ -124,43 +157,62 @@ def delete_product(product_id):
     conn.commit()
     conn.close()
 
+
 # ---------------- REFRESH PRODUCT ----------------
 def refresh_product(product_id, url):
-    result = scrape_price(url)
+    try:
+        logger.info("PRICEPULSE: Refreshing product ID: %s", product_id)
+        logger.info("PRICEPULSE: Refresh URL: %s", url)
 
-    if not result or not result.get("price"):
-        error = result.get("error", "Price could not be found.")
-        return False, error
+        result = scrape_price(url)
 
-    conn = get_db()
-    cursor = conn.cursor()
+        logger.info("PRICEPULSE: Refresh result: %s", result)
 
-    cursor.execute(
-        """UPDATE products
-           SET price=?, title=?, site=?
-           WHERE id=?""",
-        (
-            result["price"],
-            result["title"],
-            result["site"],
-            product_id
+        if not result or not result.get("price"):
+            error = (
+                result.get("error", "Price could not be found.")
+                if result
+                else "Scraper returned no result."
+            )
+
+            return False, error
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """UPDATE products
+               SET price=?, title=?, site=?
+               WHERE id=?""",
+            (
+                result["price"],
+                result["title"],
+                result["site"],
+                product_id
+            )
         )
-    )
 
-    cursor.execute(
-        """INSERT INTO history (product_id, price, date)
-           VALUES (?, ?, ?)""",
-        (
-            product_id,
-            result["price"],
-            datetime.now().strftime("%Y-%m-%d %H:%M")
+        cursor.execute(
+            """INSERT INTO history (product_id, price, date)
+               VALUES (?, ?, ?)""",
+            (
+                product_id,
+                result["price"],
+                datetime.now().strftime("%Y-%m-%d %H:%M")
+            )
         )
-    )
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
 
-    return True, result
+        logger.info("PRICEPULSE: Product refreshed successfully")
+
+        return True, result
+
+    except Exception:
+        logger.exception("PRICEPULSE: REFRESH ERROR")
+        return False, "An unexpected error occurred while refreshing. Check app logs."
+
 
 # ---------------- GET HISTORY ----------------
 def get_history(product_id):
@@ -178,6 +230,7 @@ def get_history(product_id):
     conn.close()
     return df
 
+
 # ---------------- HEADER ----------------
 st.title("💰 PricePulse")
 
@@ -187,6 +240,7 @@ st.caption(t(
 ))
 
 st.divider()
+
 
 # ---------------- TRACK PRODUCT ----------------
 st.subheader(t(
@@ -200,7 +254,8 @@ url = st.text_input(
     placeholder="https://..."
 )
 
-# TRACK PRICE BUTTON
+
+# ---------------- TRACK PRICE BUTTON ----------------
 if st.button(
     t("🚀 Track Price", "🚀 ಬೆಲೆ ಟ್ರ್ಯಾಕ್ ಮಾಡಿ"),
     use_container_width=True
@@ -208,7 +263,7 @@ if st.button(
     if not url.strip():
         st.warning(t(
             "Please paste a product URL first.",
-        "ದಯವಿಟ್ಟು ಮೊದಲು Product URL ಹಾಕಿ."
+            "ದಯವಿಟ್ಟು ಮೊದಲು Product URL ಹಾಕಿ."
         ))
 
     elif not url.strip().lower().startswith(("http://", "https://")):
@@ -237,7 +292,8 @@ if st.button(
                 "ಉತ್ಪನ್ನದ ಬೆಲೆ ಪಡೆಯಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಬೇರೆ ಲಿಂಕ್ ಪ್ರಯತ್ನಿಸಿ."
             ))
 
-# CLEAR URL BUTTON (BELOW TRACK PRICE)
+
+# ---------------- CLEAR URL BUTTON ----------------
 st.button(
     t("🧹 Clear URL", "🧹 URL ಕ್ಲಿಯರ್ ಮಾಡಿ"),
     on_click=clear_url,
@@ -245,6 +301,7 @@ st.button(
 )
 
 st.divider()
+
 
 # ---------------- MANUAL ADD ----------------
 with st.expander(t(
@@ -321,7 +378,9 @@ with st.expander(t(
 
             st.rerun()
 
+
 st.divider()
+
 
 # ---------------- TRACKED PRODUCTS ----------------
 st.subheader(t(
@@ -422,6 +481,7 @@ else:
 
                     st.line_chart(chart_data["price"])
 
+
 # ---------------- COMPARISON ----------------
 st.divider()
 
@@ -456,6 +516,7 @@ else:
         "Add at least 2 products to compare prices.",
         "ಬೆಲೆ ಹೋಲಿಸಲು ಕನಿಷ್ಠ 2 ಉತ್ಪನ್ನಗಳನ್ನು ಸೇರಿಸಿ."
     ))
+
 
 # ---------------- FOOTER ----------------
 st.divider()

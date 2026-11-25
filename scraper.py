@@ -11,7 +11,6 @@ from urllib.parse import urlparse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("PricePulse.Scraper")
 
-
 # ---------------- HEADERS ----------------
 HEADERS = {
     "User-Agent": (
@@ -24,7 +23,6 @@ HEADERS = {
         "text/html,application/xhtml+xml,"
         "application/xml;q=0.9,*/*;q=0.8"
     ),
-    "Cache-Control": "no-cache",
 }
 
 
@@ -58,7 +56,7 @@ def clean_price(value):
     return None
 
 
-# ---------------- SITE NAME ----------------
+# ---------------- SITE DETECTION ----------------
 def get_site_name(domain):
     domain = domain.lower()
 
@@ -67,7 +65,7 @@ def get_site_name(domain):
         "amzn": "Amazon",
         "flipkart": "Flipkart",
         "myntra": "Myntra",
-        "ajio": "Ajio",
+        "ajio": "AJIO",
         "nykaa": "Nykaa",
         "meesho": "Meesho",
         "snapdeal": "Snapdeal",
@@ -80,7 +78,7 @@ def get_site_name(domain):
     return domain.split(".")[0].capitalize() if domain else "Unknown"
 
 
-# ---------------- JSON PRICE ----------------
+# ---------------- JSON-LD PRICE ----------------
 def extract_json_price(soup):
     for script in soup.find_all(
         "script",
@@ -109,17 +107,13 @@ def extract_json_price(soup):
 
                     if isinstance(offers, dict):
                         price = clean_price(offers.get("price"))
-
                         if price:
                             return price
 
                     elif isinstance(offers, list):
                         for offer in offers:
                             if isinstance(offer, dict):
-                                price = clean_price(
-                                    offer.get("price")
-                                )
-
+                                price = clean_price(offer.get("price"))
                                 if price:
                                     return price
 
@@ -170,14 +164,67 @@ def extract_amazon_price(soup):
         ".a-price .a-offscreen",
     ]
 
-    for selector in selectors:
-        for element in soup.select(selector):
-            price = clean_price(
-                element.get_text(" ", strip=True)
-            )
+    return extract_from_selectors(soup, selectors)
 
-            if price and price > 10:
-                return price
+
+# ---------------- FLIPKART PRICE ----------------
+def extract_flipkart_price(soup):
+    selectors = [
+        ".Nx9bqj",
+        "[class*='Nx9bqj']",
+        "[class*='_30jeq3']",
+        "div[data-testid='price']",
+        "[itemprop='price']",
+    ]
+
+    return extract_from_selectors(soup, selectors)
+
+
+# ---------------- MYNTRA PRICE ----------------
+def extract_myntra_price(soup):
+    selectors = [
+        ".pdp-price",
+        ".pdp-price strong",
+        ".pdp-discounted-price",
+        ".price",
+        "[itemprop='price']",
+    ]
+
+    return extract_from_selectors(soup, selectors)
+
+
+# ---------------- AJIO PRICE ----------------
+def extract_ajio_price(soup):
+    selectors = [
+        ".prod-sp",
+        ".prod-price",
+        ".price",
+        ".price-value",
+        "[itemprop='price']",
+    ]
+
+    return extract_from_selectors(soup, selectors)
+
+
+# ---------------- GENERAL SELECTORS ----------------
+def extract_from_selectors(soup, selectors):
+    for selector in selectors:
+        try:
+            elements = soup.select(selector)
+
+            for element in elements:
+                value = (
+                    element.get("content")
+                    or element.get_text(" ", strip=True)
+                )
+
+                price = clean_price(value)
+
+                if price and price > 10:
+                    return price
+
+        except Exception:
+            continue
 
     return None
 
@@ -185,25 +232,17 @@ def extract_amazon_price(soup):
 # ---------------- GENERAL PRICE ----------------
 def extract_general_price(soup):
     selectors = [
-        ".Nx9bqj",
-        "[class*='30jeq3']",
-        ".pdp-price",
-        ".selling-price",
         "[itemprop='price']",
+        ".selling-price",
+        ".pdp-price",
         ".price",
+        ".product-price",
     ]
 
-    for selector in selectors:
-        for element in soup.select(selector):
-            value = (
-                element.get("content")
-                or element.get_text(" ", strip=True)
-            )
+    price = extract_from_selectors(soup, selectors)
 
-            price = clean_price(value)
-
-            if price and price > 10:
-                return price
+    if price:
+        return price
 
     text = soup.get_text(" ", strip=True)
 
@@ -215,10 +254,10 @@ def extract_general_price(soup):
     values = []
 
     for match in matches:
-        price = clean_price(match)
+        value = clean_price(match)
 
-        if price and 10 < price < 500000:
-            values.append(price)
+        if value and 10 < value < 500000:
+            values.append(value)
 
     if values:
         return min(values)
@@ -227,11 +266,7 @@ def extract_general_price(soup):
 
 
 # ---------------- ERROR RESULT ----------------
-def error_result(
-    message,
-    site="Unknown",
-    title="Product"
-):
+def error_result(message, site="Unknown", title="Product"):
     return {
         "title": title,
         "price": 0,
@@ -261,38 +296,31 @@ def scrape_price(url):
                 "Please enter a valid product URL."
             )
 
-        logger.info("PRICEPULSE: Starting scrape")
-        logger.info("Requested URL: %s", url)
+        domain = parsed.netloc.lower()
+        site_name = get_site_name(domain)
 
-        # Connect timeout: 8 seconds
-        # Read timeout: 15 seconds
+        logger.info("Starting scrape: %s", url)
+        logger.info("Detected website: %s", site_name)
+
         response = session.get(
             url,
             timeout=(8, 15),
             allow_redirects=True
         )
 
-        logger.info("Final URL: %s", response.url)
-        logger.info(
-            "HTTP Status: %s",
-            response.status_code
-        )
-        logger.info(
-            "Response Server: %s",
-            response.headers.get("Server")
-        )
-
         final_url = response.url
 
-        domain = urlparse(final_url).netloc.lower()
-        domain = domain.removeprefix("www.")
+        final_domain = urlparse(final_url).netloc.lower()
+        final_domain = final_domain.removeprefix("www.")
 
-        site_name = get_site_name(domain)
+        site_name = get_site_name(final_domain)
 
-        # ---------------- STATUS CHECK ----------------
+        logger.info("Final URL: %s", final_url)
+        logger.info("HTTP Status: %s", response.status_code)
+
         if response.status_code == 429:
             return error_result(
-                "Website is limiting automated requests. Try again later.",
+                "Website is limiting automated requests.",
                 site_name
             )
 
@@ -302,25 +330,18 @@ def scrape_price(url):
                 site_name
             )
 
-        if response.status_code in (500, 502, 503, 504):
-            return error_result(
-                f"Website server returned HTTP {response.status_code}. Try again later.",
-                site_name
-            )
-
         if response.status_code >= 400:
             return error_result(
                 f"Website returned HTTP {response.status_code}.",
                 site_name
             )
 
-        # ---------------- PARSE HTML ----------------
         soup = BeautifulSoup(
             response.content,
             "lxml"
         )
 
-        # ---------------- PRODUCT TITLE ----------------
+        # ---------------- TITLE ----------------
         title = None
 
         og_title = soup.find(
@@ -337,40 +358,44 @@ def scrape_price(url):
             if title_tag:
                 title = title_tag.get_text(strip=True)
 
-        amazon_title = soup.select_one("#productTitle")
+        if site_name == "Amazon":
+            amazon_title = soup.select_one("#productTitle")
 
-        if amazon_title:
-            title = amazon_title.get_text(
-                " ",
-                strip=True
-            )
+            if amazon_title:
+                title = amazon_title.get_text(
+                    " ",
+                    strip=True
+                )
 
         if not title:
             title = "Product"
 
         title = title[:150]
 
-        # ---------------- EXTRACT PRICE ----------------
+        # ---------------- PRICE EXTRACTION ----------------
         price = extract_json_price(soup)
 
         if not price:
             price = extract_meta_price(soup)
 
-        if not price and "amazon" in domain:
-            price = extract_amazon_price(soup)
+        if not price:
+            if site_name == "Amazon":
+                price = extract_amazon_price(soup)
+
+            elif site_name == "Flipkart":
+                price = extract_flipkart_price(soup)
+
+            elif site_name == "Myntra":
+                price = extract_myntra_price(soup)
+
+            elif site_name == "AJIO":
+                price = extract_ajio_price(soup)
 
         if not price:
             price = extract_general_price(soup)
 
-        logger.info(
-            "Extracted Product Title: %s",
-            title
-        )
-
-        logger.info(
-            "Extracted Product Price: %s",
-            price
-        )
+        logger.info("Product title: %s", title)
+        logger.info("Extracted price: %s", price)
 
         # ---------------- PRICE NOT FOUND ----------------
         if not price:
@@ -382,7 +407,7 @@ def scrape_price(url):
             if (
                 "captcha" in page_text
                 or "robot check" in page_text
-                or "enter the characters you see below" in page_text
+                or "access denied" in page_text
             ):
                 message = (
                     "Website security check blocked automated access."
@@ -390,8 +415,8 @@ def scrape_price(url):
 
             else:
                 message = (
-                    "Product price was not found. "
-                    "The website may hide prices from automated requests."
+                    "Price not found. The website may require "
+                    "JavaScript or restrict automated access."
                 )
 
             return error_result(
@@ -408,31 +433,31 @@ def scrape_price(url):
         }
 
     except requests.exceptions.ConnectTimeout:
-        logger.exception("PRICEPULSE: Connection timeout")
+        logger.exception("Connection timeout")
 
         return error_result(
-            "Could not connect to the website within 8 seconds.",
+            "Could not connect to the website in time.",
             site_name
         )
 
     except requests.exceptions.ReadTimeout:
-        logger.exception("PRICEPULSE: Read timeout")
+        logger.exception("Read timeout")
 
         return error_result(
-            "Website connected but did not respond within 15 seconds.",
+            "Website connected but did not respond in time.",
             site_name
         )
 
     except requests.exceptions.Timeout:
-        logger.exception("PRICEPULSE: Request timeout")
+        logger.exception("Request timeout")
 
         return error_result(
-            "Website request timed out. Please try again later.",
+            "Website request timed out.",
             site_name
         )
 
     except requests.exceptions.RequestException as error:
-        logger.exception("PRICEPULSE: Request error")
+        logger.exception("Request error")
 
         return error_result(
             f"Website connection failed: {error}",
@@ -440,7 +465,7 @@ def scrape_price(url):
         )
 
     except Exception as error:
-        logger.exception("PRICEPULSE: Unexpected error")
+        logger.exception("Unexpected scraper error")
 
         return error_result(
             f"Unexpected error: {error}",

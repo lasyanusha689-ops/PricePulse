@@ -2,6 +2,7 @@
 import requests
 import re
 import json
+import time
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 
@@ -13,13 +14,15 @@ HEADERS = {
     ),
     "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Cache-Control": "no-cache",
 }
 
-def clean_price(text):
-    if not text:
+
+def clean_price(value):
+    if value is None:
         return None
 
-    text = str(text)
+    text = str(value)
     text = text.replace("₹", "").replace("Rs.", "").replace("Rs", "")
     text = text.replace(",", "").strip()
 
@@ -28,7 +31,7 @@ def clean_price(text):
     if match:
         try:
             price = float(match.group())
-            if price > 0:
+            if 0 < price < 10000000:
                 return price
         except ValueError:
             pass
@@ -39,26 +42,28 @@ def clean_price(text):
 def get_site_name(domain):
     domain = domain.lower()
 
-    if "amazon" in domain or "amzn" in domain:
-        return "Amazon"
-    elif "flipkart" in domain:
-        return "Flipkart"
-    elif "myntra" in domain:
-        return "Myntra"
-    elif "ajio" in domain:
-        return "Ajio"
-    elif "nykaa" in domain:
-        return "Nykaa"
-    elif "meesho" in domain:
-        return "Meesho"
-    elif "snapdeal" in domain:
-        return "Snapdeal"
+    sites = {
+        "amazon": "Amazon",
+        "amzn": "Amazon",
+        "flipkart": "Flipkart",
+        "myntra": "Myntra",
+        "ajio": "Ajio",
+        "nykaa": "Nykaa",
+        "meesho": "Meesho",
+        "snapdeal": "Snapdeal",
+    }
+
+    for key, name in sites.items():
+        if key in domain:
+            return name
 
     return domain.split(".")[0].capitalize() if domain else "Unknown"
 
 
 def extract_json_price(soup):
-    for script in soup.find_all("script", type="application/ld+json"):
+    for script in soup.find_all(
+        "script", type="application/ld+json"
+    ):
         try:
             raw = script.string or script.get_text()
             data = json.loads(raw)
@@ -122,19 +127,16 @@ def extract_amazon_price(soup):
     selectors = [
         "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
         "#corePrice_feature_div .a-price .a-offscreen",
+        ".priceToPay .a-offscreen",
+        ".apexPriceToPay .a-offscreen",
         "#priceblock_dealprice",
         "#priceblock_saleprice",
         "#priceblock_ourprice",
-        ".priceToPay .a-offscreen",
-        ".apexPriceToPay .a-offscreen",
         ".a-price .a-offscreen",
-        ".a-price-whole",
     ]
 
     for selector in selectors:
-        elements = soup.select(selector)
-
-        for element in elements:
+        for element in soup.select(selector):
             price = clean_price(element.get_text(" ", strip=True))
 
             if price and price > 10:
@@ -149,24 +151,29 @@ def extract_general_price(soup):
         "._30jeq3",
         ".pdp-price",
         ".selling-price",
-        ".price",
         "[itemprop='price']",
+        ".price",
     ]
 
     for selector in selectors:
-        elements = soup.select(selector)
+        for element in soup.select(selector):
+            value = (
+                element.get("content")
+                or element.get_text(" ", strip=True)
+            )
 
-        for element in elements:
-            value = element.get("content") or element.get_text(" ", strip=True)
             price = clean_price(value)
 
             if price and price > 10:
                 return price
 
-    # Fallback: scan visible page text for rupee prices
+    # Fallback: find visible rupee prices
     text = soup.get_text(" ", strip=True)
 
-    matches = re.findall(r"₹\s*([\d,]+(?:\.\d{1,2})?)", text)
+    matches = re.findall(
+        r"₹\s*([\d,]+(?:\.\d{1,2})?)",
+        text
+    )
 
     values = []
 
@@ -182,43 +189,70 @@ def extract_general_price(soup):
     return None
 
 
+def error_result(message, site="Unknown", title="Product"):
+    return {
+        "title": title,
+        "price": 0,
+        "site": site,
+        "error": message,
+    }
+
+
 def scrape_price(url):
     try:
+        url = url.strip()
         parsed = urlparse(url)
 
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            return {
-                "title": "Product",
-                "price": 0,
-                "site": "Unknown",
-                "error": "Please enter a valid product URL."
-            }
+            return error_result("Please enter a valid product URL.")
 
-        response = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=20,
-            allow_redirects=True
+        response = None
+
+        # Try twice for temporary server errors
+        for attempt in range(2):
+            response = requests.get(
+                url,
+                headers=HEADERS,
+                timeout=25,
+                allow_redirects=True,
             )
 
+            if response.status_code not in (500, 502, 503, 504, 529):
+                break
+
+            if attempt == 0:
+                time.sleep(2)
+
         final_url = response.url
-        domain = urlparse(final_url).netloc.lower().replace("www.", "")
+        domain = urlparse(final_url).netloc.lower()
+        domain = domain.removeprefix("www.")
         site_name = get_site_name(domain)
 
+        if response.status_code == 429:
+            return error_result(
+                "Website is limiting automated requests. Try again later.",
+                site_name,
+            )
+
+        if response.status_code == 529:
+            return error_result(
+                "Website is temporarily unavailable or blocking automated requests. Try again later.",
+                site_name,
+            )
+
         if response.status_code >= 400:
-            return {
-                "title": "Product",
-                "price": 0,
-                "site": site_name,
-                "error": f"Website returned HTTP {response.status_code}."
-            }
+            return error_result(
+                f"Website returned HTTP {response.status_code}.",
+                site_name,
+            )
 
         soup = BeautifulSoup(response.content, "lxml")
 
-        # Product title
+        # Extract product title
         title = None
 
         og_title = soup.find("meta", property="og:title")
+
         if og_title and og_title.get("content"):
             title = og_title["content"].strip()
 
@@ -228,6 +262,7 @@ def scrape_price(url):
                 title = title_tag.get_text(strip=True)
 
         amazon_title = soup.select_one("#productTitle")
+
         if amazon_title:
             title = amazon_title.get_text(" ", strip=True)
 
@@ -236,7 +271,7 @@ def scrape_price(url):
 
         title = title[:150]
 
-        # Price extraction
+        # Extract product price
         price = extract_json_price(soup)
 
         if not price:
@@ -248,58 +283,42 @@ def scrape_price(url):
         if not price:
             price = extract_general_price(soup)
 
-        # Detect likely Amazon blocking
-        page_text = soup.get_text(" ", strip=True).lower()
-
         if not price:
+            page_text = soup.get_text(" ", strip=True).lower()
+
             if (
                 "captcha" in page_text
                 or "robot check" in page_text
                 or "enter the characters you see below" in page_text
             ):
-                error = (
-                    "Amazon blocked automated price access. "
-                    "Try another product link later."
+                message = (
+                    "Website security check blocked automated access."
                 )
             else:
-                error = (
-                    "Price was not found on this page. "
-                    "This website may hide its price from automated requests."
+                message = (
+                    "Product price was not found. "
+                    "The website may hide prices from automated requests."
                 )
 
-            return {
-                "title": title,
-                "price": 0,
-                "site": site_name,
-                "error": error
-            }
+            return error_result(message, site_name, title)
 
         return {
             "title": title,
             "price": price,
-            "site": site_name
+            "site": site_name,
         }
 
     except requests.exceptions.Timeout:
-        return {
-            "title": "Product",
-            "price": 0,
-            "site": "Unknown",
-            "error": "The website took too long to respond. Try again."
-        }
+        return error_result(
+            "Website took too long to respond. Please try again."
+        )
 
-    except requests.exceptions.RequestException as e:
-        return {
-            "title": "Product",
-            "price": 0,
-            "site": "Unknown",
-            "error": f"Website connection failed: {e}"
-        }
+    except requests.exceptions.RequestException as error:
+        return error_result(
+            f"Website connection failed: {error}"
+        )
 
-    except Exception as e:
-        return {
-            "title": "Product",
-            "price": 0,
-            "site": "Unknown",
-            "error": f"Unexpected error: {e}"
-        }
+    except Exception as error:
+        return error_result(
+            f"Unexpected error: {error}"
+        )
